@@ -65,6 +65,9 @@ func (m *Model) View() string {
 	if m.mode == ModeCreateProject {
 		return m.renderWithOverlay(m.renderCreateProjectForm())
 	}
+	if m.mode == ModeFileBrowser {
+		return m.renderWithOverlay(m.renderFileBrowser())
+	}
 
 	b.WriteString("\n")
 	b.WriteString(m.renderStatusBar())
@@ -570,6 +573,7 @@ func (m *Model) renderStatusBar() string {
 		ModeConfirm:       {"!", m.colors.err},
 		ModeFilter:        {"/", m.colors.info},
 		ModeCreateProject: {"📁", m.colors.success},
+		ModeFileBrowser:   {"📂", m.colors.success},
 	}
 	cfg := modeConfigs[m.mode]
 	if cfg.bg == "" {
@@ -823,6 +827,16 @@ func (m *Model) renderTicketForm() string {
 		actionText = "Save"
 	}
 
+	// If description is focused, show two-panel layout
+	if m.formDescFocused {
+		return m.renderTwoPanel(formTitle, actionText, isEdit)
+	}
+
+	// Otherwise, render the normal single-panel form
+	return m.renderSinglePanelForm(formTitle, actionText, isEdit)
+}
+
+func (m *Model) renderSinglePanelForm(formTitle, actionText string, isEdit bool) string {
 	titleStyle := lipgloss.NewStyle().
 		Foreground(m.colors.success).
 		Bold(true)
@@ -1090,6 +1104,109 @@ func (m *Model) renderTicketForm() string {
 		Padding(1, 2).
 		Width(formWidth).
 		Render(content)
+}
+
+func (m *Model) renderTwoPanel(formTitle, actionText string, isEdit bool) string {
+	titleStyle := lipgloss.NewStyle().
+		Foreground(m.colors.success).
+		Bold(true)
+
+	labelStyle := lipgloss.NewStyle().Foreground(m.colors.subtext)
+	activeLabelStyle := lipgloss.NewStyle().Foreground(m.colors.info).Bold(true)
+	descriptionStyle := lipgloss.NewStyle().Foreground(m.colors.muted).Italic(true)
+
+	focusIndicator := lipgloss.NewStyle().Foreground(m.colors.info).Render("▸ ")
+	noFocus := "  "
+	titleFocus := noFocus
+	if m.ticketFormField == formFieldTitle {
+		titleFocus = focusIndicator
+	}
+
+	titleLabel := labelStyle
+	if m.ticketFormField == formFieldTitle {
+		titleLabel = activeLabelStyle
+	}
+
+	// Left panel: just the title field
+	leftContent := titleStyle.Render("◈ "+formTitle) + "\n\n"
+	titleCharCount := fmt.Sprintf("%d/100", len(m.titleInput.Value()))
+	titleCharStyle := lipgloss.NewStyle().Foreground(m.colors.muted)
+	if len(m.titleInput.Value()) > 80 {
+		titleCharStyle = lipgloss.NewStyle().Foreground(m.colors.warning)
+	}
+	if len(m.titleInput.Value()) >= 100 {
+		titleCharStyle = lipgloss.NewStyle().Foreground(m.colors.err)
+	}
+
+	leftContent += titleFocus + titleLabel.Render("Title") + "  " + titleCharStyle.Render(titleCharCount) + "\n"
+	leftContent += "  " + descriptionStyle.Render("Brief summary of the task") + "\n"
+	leftContent += "  " + m.titleInput.View() + "\n"
+
+	footerHints := lipgloss.NewStyle().Foreground(m.colors.info).Render("[Tab]") + m.dimStyle().Render(" Next  ") +
+		lipgloss.NewStyle().Foreground(m.colors.success).Render("[Ctrl+S]") + m.dimStyle().Render(" "+actionText+"  ") +
+		lipgloss.NewStyle().Foreground(m.colors.muted).Render("[Esc]") + m.dimStyle().Render(" Cancel")
+	leftContent += "\n\n  " + footerHints
+
+	leftPanel := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.colors.success).
+		Padding(1, 2).
+		Width(min(35, m.width/3)).
+		Height(m.height - 4).
+		Render(leftContent)
+
+	// Right panel: description with large textarea
+	rightPanel := m.renderDescriptionPanel(actionText)
+
+	// Combine panels
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+}
+
+func (m *Model) renderDescriptionPanel(actionText string) string {
+	titleStyle := lipgloss.NewStyle().
+		Foreground(m.colors.success).
+		Bold(true)
+
+	labelStyle := lipgloss.NewStyle().Foreground(m.colors.subtext)
+	activeLabelStyle := lipgloss.NewStyle().Foreground(m.colors.info).Bold(true)
+	descriptionStyle := lipgloss.NewStyle().Foreground(m.colors.muted).Italic(true)
+
+	focusIndicator := lipgloss.NewStyle().Foreground(m.colors.info).Render("▸ ")
+	noFocus := "  "
+	descFocus := noFocus
+	if m.ticketFormField == formFieldDescription {
+		descFocus = focusIndicator
+	}
+
+	descLabel := labelStyle
+	if m.ticketFormField == formFieldDescription {
+		descLabel = activeLabelStyle
+	}
+
+	// Description panel content
+	rightContent := titleStyle.Render("◈ Description Editor") + "\n\n"
+	rightContent += descFocus + descLabel.Render("Description") + "\n"
+	rightContent += "  " + descriptionStyle.Render("Details, context, or acceptance criteria") + "\n"
+	rightContent += m.descInput.View() + "\n"
+
+	footerHints := lipgloss.NewStyle().Foreground(m.colors.info).Render("[Tab]") + m.dimStyle().Render(" Next  ") +
+		lipgloss.NewStyle().Foreground(m.colors.success).Render("[Ctrl+S]") + m.dimStyle().Render(" "+actionText+"  ") +
+		lipgloss.NewStyle().Foreground(m.colors.muted).Render("[Esc]") + m.dimStyle().Render(" Cancel")
+	rightContent += "\n\n  " + footerHints
+
+	// Calculate width for the right panel (take the remaining space)
+	rightPanelWidth := m.width - min(35, m.width/3) - 5
+	if rightPanelWidth < 40 {
+		rightPanelWidth = 40
+	}
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.colors.success).
+		Padding(1, 2).
+		Width(rightPanelWidth).
+		Height(m.height - 4).
+		Render(rightContent)
 }
 
 func (m *Model) renderPrioritySelector() string {
@@ -1608,6 +1725,79 @@ func (m *Model) renderAddProjectForm() string {
 		"  " + m.dimStyle().Render("⏎ Add  Esc Cancel")
 }
 
+func (m *Model) renderFileBrowser() string {
+	titleStyle := lipgloss.NewStyle().
+		Foreground(m.colors.success).
+		Bold(true)
+
+	labelStyle := lipgloss.NewStyle().Foreground(m.colors.info)
+	descStyle := lipgloss.NewStyle().Foreground(m.colors.muted).Italic(true)
+
+	// Calculate available height for list (max visible rows)
+	// Account for title (2) + path (2) + label (1) + bottom help (1) + padding
+	maxRows := 10 // Default
+	if m.height > 20 {
+		maxRows = min(15, m.height-14)
+	}
+	m.dirBrowser.SetMaxVisibleRows(maxRows)
+
+	// Render current path
+	content := titleStyle.Render("◈ Select Repository") + "\n\n" +
+		"  " + labelStyle.Render("Path: ") + m.addProjectPath.View() + "\n\n"
+
+	// Render matches dropdown with scrolling
+	visibleMatches := m.dirBrowser.GetVisibleMatches()
+	allMatches := m.dirBrowser.GetCurrentMatches()
+
+	if len(allMatches) > 0 {
+		scrollInfo := m.dirBrowser.GetScrollInfo()
+		content += "  " + labelStyle.Render("Directories: ") + descStyle.Render(scrollInfo) + "\n"
+
+		selectedIdx := m.dirBrowser.SelectedIndex()
+		scrollOffset := m.dirBrowser.ScrollOffset()
+
+		for i, match := range visibleMatches {
+			absoluteIdx := scrollOffset + i
+			prefix := "  "
+			style := lipgloss.NewStyle().Foreground(m.colors.text)
+			if absoluteIdx == selectedIdx {
+				prefix = "● "
+				style = style.Foreground(m.colors.info).Bold(true).Background(m.colors.surface)
+				content += "  " + style.Render(prefix+match) + "\n"
+			} else {
+				prefix = "○ "
+				content += "  " + style.Render(prefix+match) + "\n"
+			}
+		}
+		content += "\n"
+
+		// Show scroll hint if needed
+		if len(allMatches) > maxRows {
+			content += "  " + descStyle.Render("(scroll with j/k)") + "\n\n"
+		}
+	} else {
+		content += "  " + descStyle.Render("(No subdirectories found)") + "\n\n"
+	}
+
+	// Help text
+	content += "  " + lipgloss.NewStyle().Foreground(m.colors.success).Render("[Tab]") + m.dimStyle().Render(" Complete  ") +
+		lipgloss.NewStyle().Foreground(m.colors.success).Render("[Enter]") + m.dimStyle().Render(" Add  ") +
+		lipgloss.NewStyle().Foreground(m.colors.success).Render("[Backspace]") + m.dimStyle().Render(" Back  ") +
+		lipgloss.NewStyle().Foreground(m.colors.muted).Render("[Esc]") + m.dimStyle().Render(" Cancel")
+
+	formWidth := min(60, m.width-4)
+	if formWidth < 45 {
+		formWidth = 45
+	}
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.colors.success).
+		Padding(1, 2).
+		Width(formWidth).
+		Render(content)
+}
+
 func (m *Model) renderCreateProjectForm() string {
 	titleStyle := lipgloss.NewStyle().
 		Foreground(m.colors.success).
@@ -1628,7 +1818,8 @@ func (m *Model) renderCreateProjectForm() string {
 		"  " + m.addProjectPath.View() + errorLine + "\n" +
 		"  " + descStyle.Render("The project name will be derived from the directory name.") + "\n" +
 		"  " + descStyle.Render("Example: ~/projects/myapp → \"myapp\"") + "\n\n" +
-		"  " + lipgloss.NewStyle().Foreground(m.colors.success).Render("[Enter]") + m.dimStyle().Render(" Add  ") +
+		"  " + lipgloss.NewStyle().Foreground(m.colors.success).Render("[Tab]") + m.dimStyle().Render(" Browse  ") +
+		lipgloss.NewStyle().Foreground(m.colors.success).Render("[Enter]") + m.dimStyle().Render(" Add  ") +
 		lipgloss.NewStyle().Foreground(m.colors.muted).Render("[Esc]") + m.dimStyle().Render(" Cancel")
 
 	formWidth := min(55, m.width-4)

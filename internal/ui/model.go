@@ -40,6 +40,7 @@ const (
 	ModeSpawning      Mode = "SPAWNING"
 	ModeFilter        Mode = "FILTER"
 	ModeCreateProject Mode = "NEW_PROJECT"
+	ModeFileBrowser   Mode = "FILE_BROWSER"
 )
 
 const (
@@ -119,6 +120,7 @@ type Model struct {
 	projectListIndex   int
 	showAddProjectForm bool
 	addProjectPath     textinput.Model
+	dirBrowser         *DirBrowser
 
 	blockerCandidates  []*board.Ticket
 	selectedBlockers   map[board.TicketID]bool
@@ -127,6 +129,7 @@ type Model struct {
 
 	formScrollOffset int
 	formFieldLines   map[int]int
+	formDescFocused  bool // true = right panel (description), false = left panel (form)
 
 	notification string
 	notifyTime   time.Time
@@ -254,6 +257,7 @@ func NewModel(cfg *config.Config, globalStore *project.GlobalTicketStore, projec
 		hoverColumn:        -1,
 		hoverTicket:        -1,
 		updateChecker:      updateChecker,
+		dirBrowser:         NewDirBrowser(os.Getenv("HOME")),
 	}
 	if filterProjectID != "" {
 		m.filterProjectIDs[filterProjectID] = true
@@ -534,6 +538,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFilterMode(msg)
 	case ModeCreateProject:
 		return m.handleCreateProjectMode(msg)
+	case ModeFileBrowser:
+		return m.handleFileBrowserMode(msg)
 	}
 
 	return m, nil
@@ -1518,6 +1524,9 @@ func (m *Model) prevFormField(isEdit bool) *Model {
 func (m *Model) blurAllFormFields() {
 	m.titleInput.Blur()
 	m.descInput.Blur()
+	// Reset description textarea height when unfocused
+	m.descInput.SetWidth(40)
+	m.descInput.SetHeight(4)
 	m.branchInput.Blur()
 	m.labelsInput.Blur()
 	m.blockerFilterInput.Blur()
@@ -1528,20 +1537,31 @@ func (m *Model) focusCurrentField() {
 	switch m.ticketFormField {
 	case formFieldTitle:
 		m.titleInput.Focus()
+		m.formDescFocused = false
 	case formFieldDescription:
 		m.descInput.Focus()
+		m.formDescFocused = true
+		// Resize description textarea for the two-panel layout
+		m.descInput.SetWidth(m.width - min(35, m.width/3) - 10)
+		m.descInput.SetHeight(m.height - 12)
 	case formFieldBranch:
 		m.branchInput.Focus()
+		m.formDescFocused = false
 	case formFieldLabels:
 		m.labelsInput.Focus()
+		m.formDescFocused = false
 	case formFieldPriority:
+		m.formDescFocused = false
 		break
 	case formFieldWorktree:
+		m.formDescFocused = false
 		break
 	case formFieldBlockedBy:
 		m.blockerFilterInput.Focus()
+		m.formDescFocused = false
 	case formFieldProject:
 		m.projectInput.Focus()
+		m.formDescFocused = false
 	}
 }
 
@@ -1937,21 +1957,74 @@ func (m *Model) handleFilterMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleCreateProjectMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "tab":
+		// Enter file browser mode
+		inputText := m.addProjectPath.Value()
+		hasMatches := m.dirBrowser.TabComplete(inputText)
+		if hasMatches {
+			m.mode = ModeFileBrowser
+		}
+		return m, nil
 	case "enter":
 		return m.createProjectFromPath()
 	case "esc":
 		m.mode = ModeNormal
 		m.addProjectPath.Blur()
+		m.dirBrowser.Reset()
 		return m, nil
 	case "ctrl+c":
 		m.mode = ModeNormal
 		m.addProjectPath.Blur()
+		m.dirBrowser.Reset()
 		return m, nil
 	}
 
 	var cmd tea.Cmd
 	m.addProjectPath, cmd = m.addProjectPath.Update(msg)
 	return m, cmd
+}
+
+func (m *Model) handleFileBrowserMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		m.dirBrowser.MoveSelectionDown()
+		return m, nil
+	case "k", "up":
+		m.dirBrowser.MoveSelectionUp()
+		return m, nil
+	case "tab":
+		// Complete the selection and drill down
+		newPath := m.dirBrowser.SelectMatch()
+		m.addProjectPath.SetValue(newPath)
+		return m, nil
+	case "backspace":
+		// Go back up one level
+		newPath := m.dirBrowser.Backspace()
+		m.addProjectPath.SetValue(newPath)
+		return m, nil
+	case "enter":
+		// Validate and add project
+		if err := m.dirBrowser.Validate(); err != nil {
+			m.notify("Error: " + err.Error())
+			return m, nil
+		}
+		fullPath := m.dirBrowser.FullAbsPath()
+		m.addProjectPath.SetValue(fullPath)
+		m.mode = ModeNormal
+		m.dirBrowser.Reset()
+		return m.createProjectFromPath()
+	case "esc":
+		m.mode = ModeCreateProject
+		m.addProjectPath.Focus()
+		return m, nil
+	case "ctrl+c":
+		m.mode = ModeNormal
+		m.addProjectPath.Blur()
+		m.dirBrowser.Reset()
+		return m, nil
+	}
+
+	return m, nil
 }
 
 func (m *Model) clearFilter() {
