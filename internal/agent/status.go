@@ -107,8 +107,25 @@ func (d *StatusDetector) detectFromTerminalContent(agentType, content string) bo
 }
 
 func (d *StatusDetector) detectCodingAgentStatus(recentLower, fullLower string) board.AgentStatus {
+	// Check for errors FIRST before other statuses
+	errorPatterns := []string{
+		"error:",
+		"failed:",
+		"exception:",
+		"rate limit",
+		"quota exceeded",
+		"api error",
+		"timeout",
+		"connection refused",
+		"unauthorized",
+	}
+	for _, pattern := range errorPatterns {
+		if strings.Contains(recentLower, pattern) {
+			return board.AgentError
+		}
+	}
+
 	waitingPatterns := []string{
-		"waiting for",
 		"do you want",
 		"would you like",
 		"[y/n]",
@@ -120,11 +137,38 @@ func (d *StatusDetector) detectCodingAgentStatus(recentLower, fullLower string) 
 		"allow",
 		"accept",
 		"proceed",
+		"your input",
+		"your response",
+		"your confirmation",
 	}
 	for _, pattern := range waitingPatterns {
 		if strings.Contains(recentLower, pattern) {
 			return board.AgentWaiting
 		}
+	}
+
+	// Check for awaiting response patterns (idle but waiting for external response/data)
+	awaitingResponsePatterns := []string{
+		"waiting for response",
+		"awaiting response",
+		"waiting for api",
+		"awaiting api",
+	}
+	for _, pattern := range awaitingResponsePatterns {
+		if strings.Contains(recentLower, pattern) {
+			return board.AgentAwaitingResponse
+		}
+	}
+
+	// "waiting for" with specific contexts (not waiting for user)
+	if strings.Contains(recentLower, "waiting for") {
+		// If it says "waiting for user" it's AgentWaiting, otherwise it's awaiting response
+		if !strings.Contains(recentLower, "waiting for user") &&
+			!strings.Contains(recentLower, "waiting for input") &&
+			!strings.Contains(recentLower, "waiting for confirmation") {
+			return board.AgentAwaitingResponse
+		}
+		return board.AgentWaiting
 	}
 
 	workingPatterns := []string{
@@ -166,23 +210,6 @@ func (d *StatusDetector) detectCodingAgentStatus(recentLower, fullLower string) 
 	for _, pattern := range workingPatterns {
 		if strings.Contains(recentLower, pattern) {
 			return board.AgentWorking
-		}
-	}
-
-	errorPatterns := []string{
-		"error:",
-		"failed:",
-		"exception:",
-		"rate limit",
-		"quota exceeded",
-		"api error",
-		"timeout",
-		"connection refused",
-		"unauthorized",
-	}
-	for _, pattern := range errorPatterns {
-		if strings.Contains(recentLower, pattern) {
-			return board.AgentError
 		}
 	}
 
@@ -406,6 +433,8 @@ func (d *StatusDetector) readStatusFile(sessionName string) board.AgentStatus {
 			status = board.AgentIdle
 		case "waiting", "permission":
 			status = board.AgentWaiting
+		case "awaiting_response", "review":
+			status = board.AgentAwaitingResponse
 		case "error":
 			status = board.AgentError
 		case "completed":
@@ -457,6 +486,8 @@ func WriteStatusFile(sessionName string, status board.AgentStatus) error {
 		statusStr = "idle"
 	case board.AgentWaiting:
 		statusStr = "waiting"
+	case board.AgentAwaitingResponse:
+		statusStr = "awaiting_response"
 	case board.AgentCompleted:
 		statusStr = "completed"
 	case board.AgentError:

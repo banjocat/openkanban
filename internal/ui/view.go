@@ -99,7 +99,7 @@ func (m *Model) renderHeader() string {
 
 	left := lipgloss.JoinHorizontal(lipgloss.Center, logo, "  ", filterSection, "  ", stats)
 
-	workingCount, waitingCount, idleCount := 0, 0, 0
+	workingCount, waitingCount, reviewCount, idleCount := 0, 0, 0, 0
 	for ticketID, pane := range m.panes {
 		if !pane.Running() {
 			continue
@@ -114,18 +114,29 @@ func (m *Model) renderHeader() string {
 			workingCount++
 		case board.AgentWaiting:
 			waitingCount++
+		case board.AgentAwaitingResponse:
+			reviewCount++
 		case board.AgentIdle:
 			idleCount++
 		}
 	}
 
 	var activity string
-	totalActive := workingCount + waitingCount + idleCount
+	totalActive := workingCount + waitingCount + reviewCount + idleCount
 	if totalActive > 0 {
 		var statusText string
 		var bgColor lipgloss.Color
 
-		if waitingCount > 0 {
+		if reviewCount > 0 {
+			bgColor = m.colors.secondary
+			statusText = fmt.Sprintf("◐ %d review", reviewCount)
+			if waitingCount > 0 {
+				statusText = fmt.Sprintf("◐ %d review, %d waiting", reviewCount, waitingCount)
+			}
+			if workingCount > 0 {
+				statusText = fmt.Sprintf("◐ %d review, %d waiting, %d working", reviewCount, waitingCount, workingCount)
+			}
+		} else if waitingCount > 0 {
 			bgColor = m.colors.secondary
 			statusText = fmt.Sprintf("◐ %d waiting", waitingCount)
 			if workingCount > 0 {
@@ -363,6 +374,10 @@ func (m *Model) renderTicket(ticket *board.Ticket, isSelected, isHovered bool, w
 		sessionBadge = lipgloss.NewStyle().
 			Foreground(m.colors.secondary).
 			Render("◐")
+	case board.AgentAwaitingResponse:
+		sessionBadge = lipgloss.NewStyle().
+			Foreground(m.colors.secondary).
+			Render("◐")
 	case board.AgentIdle:
 		if hasPane {
 			sessionBadge = lipgloss.NewStyle().
@@ -468,6 +483,10 @@ func (m *Model) renderTicket(ticket *board.Ticket, isSelected, isHovered bool, w
 			statusIcon = "◐"
 			statusText = "waiting"
 			statusColor = m.colors.secondary
+		case board.AgentAwaitingResponse:
+			statusIcon = "◐"
+			statusText = "review"
+			statusColor = m.colors.secondary
 		case board.AgentCompleted:
 			statusIcon = "✓"
 			statusText = "done"
@@ -512,6 +531,8 @@ func (m *Model) renderTicket(ticket *board.Ticket, isSelected, isHovered bool, w
 	case board.AgentWorking:
 		accentColor = m.colors.warning
 	case board.AgentWaiting:
+		accentColor = m.colors.secondary
+	case board.AgentAwaitingResponse:
 		accentColor = m.colors.secondary
 	case board.AgentIdle:
 		if hasPane {
