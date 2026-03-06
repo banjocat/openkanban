@@ -58,12 +58,13 @@ const (
 type AgentStatus string
 
 const (
-	AgentNone      AgentStatus = "none"
-	AgentIdle      AgentStatus = "idle"
-	AgentWorking   AgentStatus = "working"
-	AgentWaiting   AgentStatus = "waiting"
-	AgentCompleted AgentStatus = "completed"
-	AgentError     AgentStatus = "error"
+	AgentNone             AgentStatus = "none"
+	AgentIdle             AgentStatus = "idle"
+	AgentWorking          AgentStatus = "working"
+	AgentWaiting          AgentStatus = "waiting"
+	AgentAwaitingResponse AgentStatus = "awaiting_response"
+	AgentCompleted        AgentStatus = "completed"
+	AgentError            AgentStatus = "error"
 )
 
 type Ticket struct {
