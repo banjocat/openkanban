@@ -219,6 +219,7 @@ type CleanupSettings struct {
 // BehaviorSettings controls application behavior preferences
 type BehaviorSettings struct {
 	ConfirmQuitWithAgents bool `json:"confirm_quit_with_agents"` // Prompt before quitting with running agents
+	AutoApprove           bool `json:"auto_approve"`             // Auto-approve agent commands (reject sudo)
 }
 
 func defaultAgents() map[string]AgentConfig {
@@ -293,6 +294,7 @@ func DefaultConfig() *Config {
 		},
 		Behavior: BehaviorSettings{
 			ConfirmQuitWithAgents: true,
+			AutoApprove:           true,
 		},
 		Opencode: OpencodeSettings{
 			ServerEnabled:  true,

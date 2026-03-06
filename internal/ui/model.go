@@ -2577,6 +2577,7 @@ func (m *Model) prepareSpawn(ticket *board.Ticket, proj *project.Project, agentC
 
 		pane := terminal.New(string(ticketID), width, height, 0)
 		pane.SetWorkdir(worktreePath)
+		pane.SetAutoApprove(cfg.Behavior.AutoApprove)
 
 		// Set session name for terminal identification (priority: AgentSessionID > branch > ticket)
 		sessionName := string(ticketID)

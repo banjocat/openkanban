@@ -21,12 +21,12 @@ const (
 )
 
 type Pane struct {
-	id      string
-	vt      vt10x.Terminal
-	pty     *os.File
-	cmd     *exec.Cmd
-	mu      sync.Mutex
-	running bool
+	id          string
+	vt          vt10x.Terminal
+	pty         *os.File
+	cmd         *exec.Cmd
+	mu          sync.Mutex
+	running     bool
 	exitErr     error
 	workdir     string
 	sessionName string
@@ -42,11 +42,14 @@ type Pane struct {
 
 	// Scrollback and viewport state (Issue #95)
 	scrollback      *ScrollbackBuffer
-	altScreenActive bool     // tracks if child process is in alternate screen mode
-	viewportOffset  int      // lines scrolled back (0 = live view)
-	lastTopRow      []vt10x.Glyph // snapshot of row 0 before write for scroll detection
-	scrollbackSize  int      // configured scrollback buffer size
+	altScreenActive bool            // tracks if child process is in alternate screen mode
+	viewportOffset  int             // lines scrolled back (0 = live view)
+	lastTopRow      []vt10x.Glyph   // snapshot of row 0 before write for scroll detection
+	scrollbackSize  int             // configured scrollback buffer size
 	selection       *SelectionState // mouse text selection state
+
+	// Command approval
+	approver *CommandApprover // validates commands before execution
 }
 
 func New(id string, width, height int, scrollbackSize int) *Pane {
@@ -58,6 +61,7 @@ func New(id string, width, height int, scrollbackSize int) *Pane {
 		width:          width,
 		height:         height,
 		scrollbackSize: scrollbackSize,
+		approver:       NewCommandApprover(false), // auto-approve disabled by default
 	}
 }
 
@@ -78,6 +82,16 @@ func (p *Pane) GetWorkdir() string {
 // SetSessionName sets the session name for OPENKANBAN_SESSION env var
 func (p *Pane) SetSessionName(name string) {
 	p.sessionName = name
+}
+
+// SetAutoApprove enables or disables auto-approval of commands
+func (p *Pane) SetAutoApprove(enabled bool) {
+	p.approver.SetAutoApprove(enabled)
+}
+
+// GetApprover returns the command approver for this pane
+func (p *Pane) GetApprover() *CommandApprover {
+	return p.approver
 }
 
 // Running returns whether the pane has a running process
@@ -183,6 +197,23 @@ func (p *Pane) Start(command string, args ...string) tea.Cmd {
 	return func() tea.Msg {
 		p.mu.Lock()
 		defer p.mu.Unlock()
+
+		// Check command approval if auto-approve is enabled
+		if p.approver.IsAutoApproveEnabled() {
+			result := p.approver.Approve(command, args)
+			if !result.Approved {
+				p.exitErr = result.Error
+				return ExitMsg{
+					PaneID: p.id,
+					Err:    fmt.Errorf("command rejected by approval: %s", result.Error.Message),
+				}
+			}
+			// Update command and args if modified by approver
+			if result.Modified {
+				command = result.Command
+				args = result.Args
+			}
+		}
 
 		// Build command
 		p.cmd = exec.Command(command, args...)
@@ -364,6 +395,29 @@ func (p *Pane) handleOutput(data []byte) {
 	p.captureScrollbackAfterWrite()
 
 	p.dirty = true
+
+	// Check for permission prompts and auto-respond if enabled
+	if p.approver.IsAutoApproveEnabled() {
+		p.handlePermissionPrompt(data)
+	}
+}
+
+// handlePermissionPrompt checks for permission/confirmation prompts and auto-responds with 'y'
+// Called with mutex held
+func (p *Pane) handlePermissionPrompt(data []byte) {
+	if p.pty == nil {
+		return
+	}
+
+	// Convert to string to check for permission prompt patterns
+	text := string(data)
+
+	// Check if this output contains a permission prompt
+	if p.approver.IsPermissionPrompt(text) {
+		// Send 'y' (yes) response followed by Enter
+		response := []byte("y\r")
+		p.pty.Write(response)
+	}
 }
 
 // detectMouseModeChanges scans output for mouse tracking mode escape sequences.
