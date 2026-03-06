@@ -2765,6 +2765,36 @@ func (m *Model) prepareSpawn(ticket *board.Ticket, proj *project.Project, agentC
 				branchName:   branchName,
 				baseBranch:   baseBranch,
 			}
+		case "copilot":
+			command := agentCfg.Command
+			args = []string{}
+			args = append(args, agentCfg.Args...)
+
+			// Add working directory flag
+			args = append(args, "--add-dir", worktreePath)
+
+			// Allow tools to run without interactive prompts
+			args = append(args, "--allow-all-tools")
+
+			// Set up initial prompt if available
+			if isNewSession && promptTemplate != "" {
+				prompt := agent.BuildContextPrompt(promptTemplate, ticket)
+				if prompt != "" {
+					args = append(args, "-i", prompt)
+				}
+			} else if !isNewSession {
+				args = append(args, "--continue")
+			}
+
+			return spawnReadyMsg{
+				ticketID:     ticketID,
+				pane:         pane,
+				command:      command,
+				args:         args,
+				worktreePath: worktreePath,
+				branchName:   branchName,
+				baseBranch:   baseBranch,
+			}
 		}
 
 		return spawnReadyMsg{
